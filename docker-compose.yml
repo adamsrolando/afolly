@@ -1,0 +1,339 @@
+version: "3.7"
+services:
+######### FRONTENDS ##########
+
+# Traefik Reverse Proxy
+  traefik:
+    hostname: traefik
+    image: traefik:latest
+    container_name: traefik
+    restart: always
+    domainname: ${DOMAINNAME}
+    networks:
+      - default
+      - traefik_proxy
+    ports:
+      - "80:80"
+      - "443:443"
+#      - "8080:8080"
+    environment:
+      - CLOUDFLARE_EMAIL=${CLOUDFLARE_EMAIL}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.backend=traefik"
+      - "traefik.frontend.rule=Host:traefik.${DOMAINNAME}"
+#      - "traefik.frontend.rule=Host:${DOMAINNAME}; PathPrefixStrip: /traefik"
+      - "traefik.port=8080"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.frontend.headers.SSLRedirect=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.contentTypeNosniff=true"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.SSLHost=afollyserver.com"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.frameDeny=true"
+      - "traefik.frontend.auth.basic.usersFile=/shared/.htpasswd"
+      - "traefik.frontend.auth.basic.removeHeader=true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${USERDIR}/docker/traefik:/etc/traefik
+      - ${USERDIR}/docker/shared:/shared
+
+
+#Portainer - WebUI for Containers
+  portainer:
+    image: portainer/portainer
+    container_name: portainer
+    restart: always
+    command: -H unix:///var/run/docker.sock
+#    ports:
+#      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${USERDIR}/docker/portainer/data:/data
+      - ${USERDIR}/docker/shared:/shared
+    environment:
+      - TZ=${TZ}
+    networks:
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.backend=portainer"
+      - "traefik.frontend.rule=Host:portainer.${DOMAINNAME}"
+#      - "traefik.frontend.rule=Host:${DOMAINNAME}; PathPrefixStrip: /portainer"
+      - "traefik.port=9000"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.frontend.headers.SSLRedirect=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.contentTypeNosniff=true"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.SSLHost=afollyserver.com"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.frameDeny=true"
+
+
+# MariaDB – Database Server for your Apps
+  mariadb:
+    image: "linuxserver/mariadb"
+    container_name: "mariadb"
+    hostname: mariadb
+    volumes:
+        - ${USERDIR}/docker/mariadb:/config
+    ports:
+      - target: 3306
+        published: 3306
+        protocol: tcp
+        mode: host
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+
+
+
+# Phpmyadmin
+  phpmyadmin:
+    hostname: phpmyadmin
+    container_name: phpmyadmin
+    image: phpmyadmin/phpmyadmin
+    restart: always
+    links:
+      - mariadb:db
+#    ports:
+#      - 82:80
+    environment:
+      - PMA_HOST=mariadb
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    networks:
+      - traefik_proxy
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.backend=phpmyadmin"
+      - "traefik.frontend.rule=Host:phpmyadmin.${DOMAINNAME}"
+      - "traefik.port=80"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.frontend.headers.SSLRedirect=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.contentTypeNosniff=true"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.SSLHost=afollyserver.com"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.frameDeny=true"
+
+
+# Mosquitto - Brocker
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    hostname: mosquitto
+    container_name: mosquitto
+    restart: always
+#    expose:
+#      - "1883"
+#      - "9001"
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ${USERDIR}/docker/mosquitto/config/:/mosquitto/config/
+      - ${USERDIR}/docker/mosquitto/log:/mosquitto/log
+      - ${USERDIR}/docker/mosquitto/data:/mosquitto/data
+    networks:
+      - default
+
+
+# Home Assistant
+  homeassistant:
+    container_name: homeassistant
+    restart: always
+    image: homeassistant/home-assistant
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/ttyACM0:/dev/ttyACM0
+    volumes:
+      - ${USERDIR}/docker/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - ${USERDIR}/docker/shared:/shared
+#    ports:
+#      - "8123:8123"
+    privileged: true
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - traefik_proxy
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.backend=homeassistant"
+      - "traefik.frontend.rule=Host:hass.${DOMAINNAME}"
+      - "traefik.port=8123"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.frontend.headers.SSLRedirect=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.contentTypeNosniff=true"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.SSLHost=afollyserver.com"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.frameDeny=true"
+
+#Zegbee2mqtt
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt
+    container_name: zigbee2mqtt
+    restart: always
+    devices:
+      - /dev/ttyACM0
+    volumes:
+      - ${USERDIR}/docker/zigbee2mqtt:/app/data
+
+
+
+# Plex Media Server
+  plexms:
+    container_name: plexms
+    restart: always
+    image: plexinc/pms-docker
+    volumes:
+      - ${USERDIR}/docker/plexms:/config
+      - ${USERDIR}/Downloads/plex_tmp:/transcode
+      - /media/media:/media
+      - ${USERDIR}/docker/shared:/shared
+    ports:
+      - "32400:32400/tcp"
+      - "3005:3005/tcp"
+      - "8324:8324/tcp"
+      - "32469:32469/tcp"
+      - "1900:1900/udp"
+      - "32410:32410/udp"
+      - "32412:32412/udp"
+      - "32413:32413/udp"
+      - "32414:32414/udp"
+    environment:
+      - TZ=${TZ}
+      - HOSTNAME="Docker Plex"
+      - PLEX_CLAIM="claim-jhjsty32kxu2yjX4En78"
+      - PLEX_UID=${PUID}
+      - PLEX_GID=${PGID}
+      - ADVERTISE_IP="http://192.168.5.253:32400/"
+    networks:
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.backend=plexms"
+      - "traefik.frontend.rule=Host:plex.${DOMAINNAME}"
+      - "traefik.port=32400"
+      - "traefik.protocol=http"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.frontend.headers.SSLRedirect=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.contentTypeNosniff=true"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.SSLHost=afollyserver.com"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.frameDeny=true"
+
+
+
+# Openvpn
+  openvpn:
+    cap_add:
+     - NET_ADMIN
+    image: kylemanna/openvpn
+    container_name: openvpn
+    ports:
+     - "1194:1194/udp"
+    restart: always
+    volumes:
+     - ${USERDIR}/docker/openvpn-data/conf:/etc/openvpn
+
+
+##############  Wordpress ################
+# The main front-end application.
+  Wordpress:
+    image: wordpress:latest
+    depends_on:
+      - mariadb
+    restart: always
+    networks:
+      - traefik_proxy
+      - default
+    volumes:
+      # Ensure WP themes/plugins/uploads persist between restarts.
+      - wordpress_files:${USERDIR}/docker/Wordpress/www/wp-content
+      # Install our own php.ini, which can be customized.
+      - ./php.ini:/usr/local/etc/php/php.ini
+    environment:
+      WORDPRESS_DB_HOST: mariadb:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: lyJHPMcs2ED2zJvD
+    labels:
+      - "traefik.docker.network=frontend"
+      - "traefik.enable=true"
+      - "traefik.protocol=http"
+      - "traefik.backend=www"
+      - "traefik.port=80"
+      - "traefik.frontend.rule=HostRegexp:www.${DOMAINNAME},{catchall:.*}"
+      - "traefik.frontend.priority=1"
+      - "traefik.frontend.headers.SSLRedirect=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.contentTypeNosniff=true"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.SSLHost=${DOMAINNAME}"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.frameDeny=true"
+
+
+
+#######################################################################
+  # This allows WordPress to send email straight out of the box without
+  # having to rely on an external provider like SendGrid or MailGun.
+  # It makes an SMTP host available at the hostname "mail".
+  Smtp:
+    image: bytemark/smtp
+    restart: always
+    networks:
+      - default
+    labels:
+      - "traefik.enable=false"
+##################################################
+# Watchtower - Automatic Update of Containers/Apps
+  watchtower:
+    container_name: watchtower
+    hostname: watchtower
+    restart: always
+    image: v2tec/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --schedule "0 0 4 * * *" --cleanup
+      
+
+#########################################
+#########################################
+networks:
+  traefik_proxy:
+    external:
+      name: traefik_proxy
+  default:
+    driver: bridge
+
+volumes:
+    wordpress_files:
